@@ -23,6 +23,8 @@ The game/application is limited to approximately **60 FPS** without changing the
 
 This mod adds a custom **ReShade configuration** with several visual effects and a 30 FPS frame rate limiter.
 
+![](screenshots/0.png)
+
 ### Features
 
 - FXAA anti-aliasing
