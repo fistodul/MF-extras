@@ -1,0 +1,111 @@
+diff --git a/d3d8to9-mod/d3d8to9.vcxproj.user b/d3d8to9-mod/d3d8to9.vcxproj.user
+new file mode 100644
+index 0000000..88a5509
+--- /dev/null
++++ b/d3d8to9-mod/d3d8to9.vcxproj.user
+@@ -0,0 +1,4 @@
++﻿<?xml version="1.0" encoding="utf-8"?>
++<Project ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
++  <PropertyGroup />
++</Project>
+\ No newline at end of file
+diff --git a/d3d8to9-main/source/d3d8to9_device.cpp b/d3d8to9-mod/source/d3d8to9_device.cpp
+index 7428bea..ea0d718 100644
+--- a/d3d8to9-main/source/d3d8to9_device.cpp
++++ b/d3d8to9-mod/source/d3d8to9_device.cpp
+@@ -231,6 +231,8 @@ HRESULT STDMETHODCALLTYPE Direct3DDevice8::Reset(D3DPRESENT_PARAMETERS8 *pPresen
+ HRESULT STDMETHODCALLTYPE Direct3DDevice8::Present(const RECT *pSourceRect, const RECT *pDestRect, HWND hDestWindowOverride, const RGNDATA *pDirtyRegion)
+ {
+ 	UNREFERENCED_PARAMETER(pDirtyRegion);
++	
++	LimitFramerateTo60FPS();   // <-- add this
+ 
+ 	return ProxyInterface->Present(pSourceRect, pDestRect, hDestWindowOverride, nullptr);
+ }
+diff --git a/d3d8to9-main/source/d3d8to9_swap_chain.cpp b/d3d8to9-mod/source/d3d8to9_swap_chain.cpp
+index 07cf718..f6263de 100644
+--- a/d3d8to9-main/source/d3d8to9_swap_chain.cpp
++++ b/d3d8to9-mod/source/d3d8to9_swap_chain.cpp
+@@ -46,6 +46,8 @@ ULONG STDMETHODCALLTYPE Direct3DSwapChain8::Release()
+ HRESULT STDMETHODCALLTYPE Direct3DSwapChain8::Present(const RECT *pSourceRect, const RECT *pDestRect, HWND hDestWindowOverride, const RGNDATA *pDirtyRegion)
+ {
+ 	UNREFERENCED_PARAMETER(pDirtyRegion);
++	
++	LimitFramerateTo60FPS();   // <-- add this
+ 
+ 	return ProxyInterface->Present(pSourceRect, pDestRect, hDestWindowOverride, nullptr, 0);
+ }
+diff --git a/d3d8to9-main/source/d3d8types.cpp b/d3d8to9-mod/source/d3d8types.cpp
+index a89df23..ff3a9e8 100644
+--- a/d3d8to9-main/source/d3d8types.cpp
++++ b/d3d8to9-mod/source/d3d8types.cpp
+@@ -27,6 +27,57 @@ DWORD GetDepthStencilBitCount(D3DFORMAT Format)
+ 	}
+ }
+ 
++// Cap the frame rate to 60 FPS using a precise wait in Present().
++void LimitFramerateTo60FPS()
++{
++    static LARGE_INTEGER frequency = {};
++    static LARGE_INTEGER nextFrameTime = {};
++    static bool initialized = false;
++
++    LARGE_INTEGER currentTime;
++    QueryPerformanceCounter(&currentTime);
++
++    if (!initialized)
++    {
++        QueryPerformanceFrequency(&frequency);
++        // Schedule the first real frame one full frame from now.
++        nextFrameTime.QuadPart = currentTime.QuadPart +
++            static_cast<LONGLONG>(static_cast<double>(frequency.QuadPart) / 60.0 + 0.5);
++        initialized = true;
++        return;
++    }
++
++    // If we're more than a second behind schedule (e.g. after a loading screen),
++    // reset the schedule so we don't try to "catch up" and spike the CPU.
++    if (currentTime.QuadPart > nextFrameTime.QuadPart + frequency.QuadPart)
++    {
++        nextFrameTime = currentTime;
++    }
++
++    // Wait until the target time for this frame.
++    if (currentTime.QuadPart < nextFrameTime.QuadPart)
++    {
++        const double waitMs =
++            static_cast<double>(nextFrameTime.QuadPart - currentTime.QuadPart) * 1000.0 /
++            static_cast<double>(frequency.QuadPart);
++
++        // Sleep for most of the wait, then spin for the last ~1 ms for precision.
++        if (waitMs > 1.5)
++        {
++            Sleep(static_cast<DWORD>(waitMs - 1.0));
++        }
++
++        do
++        {
++            QueryPerformanceCounter(&currentTime);
++        } while (currentTime.QuadPart < nextFrameTime.QuadPart);
++    }
++
++    // Advance the schedule by exactly one frame duration (no drift).
++    nextFrameTime.QuadPart +=
++        static_cast<LONGLONG>(static_cast<double>(frequency.QuadPart) / 60.0 + 0.5);
++}
++
+ DWORD CalcDepthBias(DWORD ZBias, DWORD DepthBitCount)
+ {
+ 	float DepthEpsilon;
+diff --git a/d3d8to9-main/source/d3d8types.hpp b/d3d8to9-mod/source/d3d8types.hpp
+index 281c890..868d26c 100644
+--- a/d3d8to9-main/source/d3d8types.hpp
++++ b/d3d8to9-mod/source/d3d8types.hpp
+@@ -194,6 +194,7 @@ struct D3DADAPTER_IDENTIFIER8
+ DWORD GetDepthStencilBitCount(D3DFORMAT Format);
+ DWORD CalcDepthBias(DWORD ZBias, DWORD BitCount);
+ 
++void LimitFramerateTo60FPS();
+ void ConvertCaps(D3DCAPS9 &Input, D3DCAPS8 &Output);
+ void ConvertVolumeDesc(D3DVOLUME_DESC &Input, D3DVOLUME_DESC8 &Output);
+ void ConvertSurfaceDesc(D3DSURFACE_DESC &Input, D3DSURFACE_DESC8 &Output);
